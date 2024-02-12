@@ -44,19 +44,19 @@ public class InfinispanEmbeddingStore implements EmbeddingStore<TextSegment> {
     public RemoteCache<String, LangchainInfinispanItem> getRemoteCache() {
         return remoteCache;
     }
-    private final LanchainItemMarshaller itemMarshaller;
+    private final LangchainItemMarshaller itemMarshaller;
 
     private static final String DEFAULT_CACHE_CONFIG =
           "<distributed-cache name=\"CACHE_NAME\">\n"
           +     "<indexing storage=\"local-heap\">\n"
           +     "<indexed-entities>\n"
-          +     "<indexed-entity>LANCHAINITEM</indexed-entity>\n"
+          +     "<indexed-entity>LANGCHAINITEM</indexed-entity>\n"
           +     "</indexed-entities>\n"
           +     "</indexing>\n"
           + "</distributed-cache>";
 
     private static final String PROTO = "syntax = \"proto2\";\n" + "\n" + "/**\n" + " * @Indexed\n" + " */\n"
-          + "message LanchainItemDIMENSION {\n" + "   \n" + "   /**\n" + "    * @Keyword\n" + "    */\n"
+          + "message LangchainItemDIMENSION {\n" + "   \n" + "   /**\n" + "    * @Keyword\n" + "    */\n"
           + "   optional string id = 1;\n" + "   \n" + "   /**\n" + "    * @Vector(dimension=DIMENSION, similarity=COSINE)\n"
           + "    */\n" + "   repeated float floatVector = 2;\n" + "   \n" + "   optional string text = 3;\n" + "   \n"
           + "   repeated string metadataKeys = 4;\n" + "   \n" + "   repeated string metadataValues = 5;\n" + "}\n";
@@ -74,16 +74,16 @@ public class InfinispanEmbeddingStore implements EmbeddingStore<TextSegment> {
         ensureNotNull(builder, "builder");
         ensureNotBlank(name, "name");
         ensureNotNull(dimension, "dimension");
-        itemMarshaller = new LanchainItemMarshaller(dimension);
+        itemMarshaller = new LangchainItemMarshaller(dimension);
         builder.remoteCache(name)
               .configuration(DEFAULT_CACHE_CONFIG.replace("CACHE_NAME", name)
-                    .replace("LANCHAINITEM", itemMarshaller.getTypeName()));
+                    .replace("LANGCHAINITEM", itemMarshaller.getTypeName()));
 
         // Registers the schema on the client
         ProtoStreamMarshaller marshaller = new ProtoStreamMarshaller();
         SerializationContext serializationContext = marshaller.getSerializationContext();
         FileDescriptorSource fileDescriptorSource = new FileDescriptorSource();
-        String fileName = "lanchain_dimension_" + dimension + ".proto";
+        String fileName = "langchain_dimension_" + dimension + ".proto";
         String fileContent = PROTO.replace("DIMENSION", dimension.toString());
         fileDescriptorSource.addProtoFile(fileName, fileContent);
         serializationContext.registerProtoFiles(fileDescriptorSource);

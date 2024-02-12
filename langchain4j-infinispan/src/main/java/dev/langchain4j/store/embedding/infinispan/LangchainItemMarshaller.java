@@ -9,11 +9,11 @@ import java.util.List;
 /**
  * Marshaller to read and write embeddings to Infinispan
  */
-public class LanchainItemMarshaller implements MessageMarshaller<LangchainInfinispanItem> {
+public class LangchainItemMarshaller implements MessageMarshaller<LangchainInfinispanItem> {
    private final String typeName;
 
-   public LanchainItemMarshaller(Integer dimension) {
-      this.typeName = "LanchainItem" + dimension.toString();
+   public LangchainItemMarshaller(Integer dimension) {
+      this.typeName = "LangchainItem" + dimension.toString();
    }
 
    @Override

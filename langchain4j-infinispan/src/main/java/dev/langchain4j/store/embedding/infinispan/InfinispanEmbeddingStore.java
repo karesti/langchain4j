@@ -4,7 +4,10 @@ import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
+import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
+import dev.langchain4j.store.embedding.EmbeddingSearchResult;
 import dev.langchain4j.store.embedding.EmbeddingStore;
+import dev.langchain4j.store.embedding.filter.Filter;
 import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.configuration.ConfigurationBuilder;
@@ -18,7 +21,9 @@ import org.infinispan.query.remote.client.ProtobufMetadataManagerConstants;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +41,7 @@ import static java.util.stream.Collectors.toList;
 
 /**
  * Infinispan Embedding Store
+ * Supports storing {@link Metadata} and filtering by it using {@link Filter}
  */
 public class InfinispanEmbeddingStore implements EmbeddingStore<TextSegment> {
 
@@ -51,7 +57,6 @@ public class InfinispanEmbeddingStore implements EmbeddingStore<TextSegment> {
                     + "<indexing storage=\"local-heap\">\n"
                     + "<indexed-entities>\n"
                     + "<indexed-entity>LANGCHAINITEM</indexed-entity>\n"
-                    + "<indexed-entity>LANGCHAIN_METADATA</indexed-entity>\n"
                     + "</indexed-entities>\n"
                     + "</indexing>\n"
                     + "</distributed-cache>";
@@ -60,6 +65,7 @@ public class InfinispanEmbeddingStore implements EmbeddingStore<TextSegment> {
     public static final String LANGCHAIN_ITEM = "LangChainItem";
     public static final String METADATA_ITEM = "LangChainMetadata";
 
+    private int distance = 3;
     /**
      * Creates an instance of InfinispanEmbeddingStore
      *
@@ -69,10 +75,15 @@ public class InfinispanEmbeddingStore implements EmbeddingStore<TextSegment> {
      */
     public InfinispanEmbeddingStore(ConfigurationBuilder builder,
                                     String name,
-                                    Integer dimension) {
+                                    Integer dimension,
+                                    Integer distance,
+                                    Collection<String> metadataKeys) {
         ensureNotNull(builder, "builder");
         ensureNotBlank(name, "name");
         ensureNotNull(dimension, "dimension");
+        if (distance != null) {
+            this.distance = distance;
+        }
         String langchainType = LANGCHAIN_ITEM + dimension;
         String metadataType = METADATA_ITEM + dimension;
         itemMarshaller = new LangChainItemMarshaller(computeTypeWithPackage(langchainType));
@@ -86,23 +97,24 @@ public class InfinispanEmbeddingStore implements EmbeddingStore<TextSegment> {
         ProtoStreamMarshaller marshaller = new ProtoStreamMarshaller();
         SerializationContext serializationContext = marshaller.getSerializationContext();
         String fileName = ITEM_PACKAGE + "." + "dimension." + dimension + ".proto";
-        Schema schema =  new Schema.Builder("magazine.proto")
+        Schema schema =  new Schema.Builder(fileName)
               .packageName(ITEM_PACKAGE)
               .addMessage(metadataType)
                 .addComment("@Indexed")
                 .addField(Type.Scalar.STRING, "name", 1)
-                    .addComment("@Text")
+                    .addComment("@Basic")
                 .addField(Type.Scalar.STRING, "value", 2)
-                    .addComment("@Text")
+                    .addComment("@Basic")
               .addMessage(langchainType)
                 .addComment("@Indexed")
                 .addField(Type.Scalar.STRING, "id", 1)
-                    .addComment("@Text")
+                    .addComment("@Basic")
                 .addField(Type.Scalar.STRING, "text", 2)
-                    .addComment("@Keyword")
+                    .addComment("@Text")
                 .addRepeatedField(Type.Scalar.FLOAT, "embedding", 3)
                     .addComment("@Vector(dimension=" + dimension + ", similarity=COSINE)")
                 .addRepeatedField(Type.create(metadataType), "metadata", 4)
+                    .addComment("@Embedded")
               .build();
 
         String schemaContent =  schema.toString();
@@ -153,6 +165,21 @@ public class InfinispanEmbeddingStore implements EmbeddingStore<TextSegment> {
     }
 
     @Override
+    public EmbeddingSearchResult<TextSegment> search(EmbeddingSearchRequest embeddingSearchRequest) {
+        String vector = Arrays.toString(embeddingSearchRequest.queryEmbedding().vector());
+        Query<Object[]> query = createQuery(vector, embeddingSearchRequest.filter());
+        return new EmbeddingSearchResult<>(toMatches(query.maxResults(embeddingSearchRequest.maxResults()).list(), embeddingSearchRequest.minScore()));
+    }
+
+    private Query<Object[]>  createQuery(String vector, Filter filter) {
+        String itemQuery = "select i, score(i) from " + itemMarshaller.getTypeName() + " i WHERE i.embedding <-> " + vector + "~" + distance;
+        if (filter != null) {
+            itemQuery = itemQuery + InfinispanMetadataFilterMapper.map(filter);
+        }
+        Query<Object[]> query = remoteCache.query(itemQuery);
+        return query;
+    }
+    @Override
     public List<String> addAll(List<Embedding> embeddings, List<TextSegment> embedded) {
         List<String> ids = embeddings.stream()
                 .map(ignored -> randomUUID())
@@ -161,11 +188,7 @@ public class InfinispanEmbeddingStore implements EmbeddingStore<TextSegment> {
         return ids;
     }
 
-    @Override
-    public List<EmbeddingMatch<TextSegment>> findRelevant(Embedding referenceEmbedding, int maxResults, double minScore) {
-        Query<Object[]> query = remoteCache.query("select i, score(i) from " + itemMarshaller.getTypeName() + " i where i.embedding <-> " + Arrays.toString(referenceEmbedding.vector()) + "~3");
-        List<Object[]> hits = query.maxResults(maxResults).list();
-
+    private static List<EmbeddingMatch<TextSegment>> toMatches(List<Object[]> hits, double minScore) {
         return hits.stream().map(obj -> {
             LangChainInfinispanItem item = (LangChainInfinispanItem) obj[0];
             Float score = (Float) obj[1];
@@ -231,6 +254,8 @@ public class InfinispanEmbeddingStore implements EmbeddingStore<TextSegment> {
         private ConfigurationBuilder builder;
         private String name;
         private Integer dimension;
+        private Integer distance;
+        private Collection<String> metadataKeys = new ArrayList<>();
 
         /**
          * Infinispan cache name to be used, will be created on first access
@@ -249,6 +274,14 @@ public class InfinispanEmbeddingStore implements EmbeddingStore<TextSegment> {
         }
 
         /**
+         * Infinispan vector search distance
+         */
+        public Builder distance(Integer distance) {
+            this.distance = distance;
+            return this;
+        }
+
+        /**
          * Infinispan Configuration Builder
          *
          * @param builder, Infinispan client configuration builder
@@ -260,12 +293,20 @@ public class InfinispanEmbeddingStore implements EmbeddingStore<TextSegment> {
         }
 
         /**
+         * @param metadataKeys Metadata keys that should be persisted (optional)
+         */
+        public Builder metadataKeys(Collection<String> metadataKeys) {
+            this.metadataKeys = metadataKeys;
+            return this;
+        }
+
+        /**
          * Builds the store
          *
          * @return InfinispanEmbeddingStore
          */
         public InfinispanEmbeddingStore build() {
-            return new InfinispanEmbeddingStore(builder, name, dimension);
+            return new InfinispanEmbeddingStore(builder, name, dimension, distance, metadataKeys);
         }
     }
 }

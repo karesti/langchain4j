@@ -4,7 +4,7 @@ import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.AllMiniLmL6V2QuantizedEmbeddingModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.store.embedding.EmbeddingStore;
-import dev.langchain4j.store.embedding.EmbeddingStoreIT;
+import dev.langchain4j.store.embedding.EmbeddingStoreWithFilteringIT;
 import org.infinispan.client.hotrod.configuration.ClientIntelligence;
 import org.infinispan.client.hotrod.configuration.ConfigurationBuilder;
 import org.infinispan.commons.util.Version;
@@ -16,27 +16,27 @@ import static org.infinispan.server.test.core.InfinispanContainer.DEFAULT_PASSWO
 import static org.infinispan.server.test.core.InfinispanContainer.DEFAULT_USERNAME;
 import static org.infinispan.server.test.core.InfinispanContainer.IMAGE_BASENAME;
 
-class InfinispanEmbeddingStoreIT extends EmbeddingStoreIT {
+class InfinispanEmbeddingStoreIT extends EmbeddingStoreWithFilteringIT {
 
-    static InfinispanContainer infinispan = new InfinispanContainer(IMAGE_BASENAME + ":" + Version.getVersion());
+    //static InfinispanContainer infinispan = new InfinispanContainer(IMAGE_BASENAME + ":" + Version.getVersion());
     EmbeddingStore<TextSegment> embeddingStore;
     EmbeddingModel embeddingModel = new AllMiniLmL6V2QuantizedEmbeddingModel();
 
     @BeforeAll
     static void beforeAll() {
-        infinispan.start();
+//        infinispan.start();
     }
 
     @AfterAll
     static void afterAll() {
-        infinispan.stop();
+//        infinispan.stop();
     }
 
     @Override
     protected void clearStore() {
         ConfigurationBuilder builder = new ConfigurationBuilder();
-        builder.addServer().host(infinispan.getHost())
-                .port(infinispan.getFirstMappedPort())
+        builder.addServer().host("localhost")
+                .port(11222)
                 .security()
                 .authentication()
                 .username(DEFAULT_USERNAME)
@@ -47,6 +47,7 @@ class InfinispanEmbeddingStoreIT extends EmbeddingStoreIT {
         InfinispanEmbeddingStore embeddingStoreInf = InfinispanEmbeddingStore.builder()
                 .cacheName("my-cache")
                 .dimension(384)
+                .distance(10)
                 .infinispanConfigBuilder(builder)
                 .build();
         embeddingStoreInf.clearCache();

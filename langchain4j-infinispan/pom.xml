@@ -33,6 +33,13 @@
         </dependency>
 
         <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-agentic</artifactId>
+            <version>1.10.0-beta18-SNAPSHOT</version>
+            <optional>true</optional>
+        </dependency>
+
+        <dependency>
             <groupId>org.infinispan</groupId>
             <artifactId>infinispan-api</artifactId>
         </dependency>
